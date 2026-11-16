@@ -21,7 +21,9 @@ jobs:
 
       FLOCI_ENDPOINT: http://localhost:4566
 
-      ECR_REGISTRY: localhost:4566/000000000000/us-east-1
+      ECR_REGISTRY: 127.0.0.1:4566
+      ECR_NAMESPACE: 000000000000/us-east-1
+      ECS_TASK_REGISTRY: localhost:4566
       ECR_REPOSITORY: ec2-docker-cicd-app
 
       ECS_CLUSTER: node-mongo-cluster
@@ -47,7 +49,7 @@ jobs:
 
           $password | docker login `
             --username AWS `
-            --password-stdin localhost:4566
+            --password-stdin $env:ECR_REGISTRY
 
           if ($LASTEXITCODE -ne 0) {
             throw "Docker login failed"
@@ -55,7 +57,8 @@ jobs:
 
       - name: Build Docker image
         run: |
-          $image = "$env:ECR_REGISTRY/$env:ECR_REPOSITORY`:latest"
+          $image = "$env:ECR_REGISTRY/$env:ECR_NAMESPACE/$env:ECR_REPOSITORY`:latest"
+          $taskImage = "$env:ECS_TASK_REGISTRY/$env:ECR_NAMESPACE/$env:ECR_REPOSITORY`:latest"
 
           docker build -t $image .
 
@@ -63,9 +66,15 @@ jobs:
             throw "Docker build failed"
           }
 
+          docker tag $image $taskImage
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Docker task image tag failed"
+          }
+
       - name: Push image to ECR
         run: |
-          $image = "$env:ECR_REGISTRY/$env:ECR_REPOSITORY`:latest"
+          $image = "$env:ECR_REGISTRY/$env:ECR_NAMESPACE/$env:ECR_REPOSITORY`:latest"
 
           docker push $image
 
