@@ -1,0 +1,102 @@
+name: Deploy Express App to FLoCI ECS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Windows, X64]
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.FLOCI_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.FLOCI_AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: us-east-1
+
+      FLOCI_ENDPOINT: http://localhost:4566
+
+      ECR_REGISTRY: localhost:4566/000000000000/us-east-1
+      ECR_REPOSITORY: ec2-docker-cicd-app
+
+      ECS_CLUSTER: node-mongo-cluster
+      ECS_SERVICE: ec2-docker-cicd-service
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Verify Docker and AWS CLI
+        shell: pwsh
+        run: |
+          docker --version
+          aws --version
+
+      - name: Login to FLoCI ECR
+        shell: pwsh
+        run: |
+          $password = aws ecr get-login-password `
+            --endpoint-url $env:FLOCI_ENDPOINT
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "ECR login failed"
+          }
+
+          $password | docker login `
+            --username AWS `
+            --password-stdin localhost:4566
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Docker login failed"
+          }
+
+      - name: Build Docker image
+        shell: pwsh
+        run: |
+          $image = "$env:ECR_REGISTRY/$env:ECR_REPOSITORY`:latest"
+
+          docker build -t $image .
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Docker build failed"
+          }
+
+      - name: Push image to ECR
+        shell: pwsh
+        run: |
+          $image = "$env:ECR_REGISTRY/$env:ECR_REPOSITORY`:latest"
+
+          docker push $image
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Docker push failed"
+          }
+
+      - name: Deploy existing ECS task definition
+        shell: pwsh
+        run: |
+          aws ecs update-service `
+            --cluster $env:ECS_CLUSTER `
+            --service $env:ECS_SERVICE `
+            --task-definition ec2-docker-cicd-task:1 `
+            --force-new-deployment `
+            --endpoint-url $env:FLOCI_ENDPOINT
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "ECS service update failed"
+          }
+
+      - name: Wait for ECS service stability
+        shell: pwsh
+        run: |
+          aws ecs wait services-stable `
+            --cluster $env:ECS_CLUSTER `
+            --services $env:ECS_SERVICE `
+            --endpoint-url $env:FLOCI_ENDPOINT
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "ECS deployment failed"
+          }
+
+          Write-Host "Deployment successful!"
