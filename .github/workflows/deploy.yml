@@ -33,10 +33,18 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Verify Docker and AWS CLI
+      - name: Verify Docker daemon and AWS CLI
         run: |
-          docker --version
+          $dockerVersion = cmd /c "docker version 2>&1"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Docker daemon is unavailable to the runner account. Check Docker Desktop, the runner's Docker context, and Docker pipe access.`n$($dockerVersion -join "`n")"
+          }
+          $dockerVersion
+
           aws --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "AWS CLI version check failed"
+          }
 
       - name: Login to FLoCI ECR
         run: |
